@@ -1,0 +1,6 @@
+user:
+  repo: subiz/user
+  branch: master
+account:
+  repo: subiz/account
+  commit: 250cfc370

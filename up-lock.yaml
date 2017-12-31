@@ -1,0 +1,10 @@
+account:
+  commit: 250cfc370
+  repo: subiz/account
+  branch: ""
+  version: "1"
+user:
+  commit: f3ae4170bbe2fc4a134474b0daa207951e07a7da
+  repo: subiz/user
+  branch: master
+  version: "22"

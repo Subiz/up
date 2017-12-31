@@ -1,0 +1,85 @@
+---
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: account
+  name: account
+spec:
+  clusterIP: None
+  ports: null
+  selector:
+    app: account
+
+---
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  labels:
+    app: account
+  name: account
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: account
+  serviceName: account
+  template:
+    metadata:
+      labels:
+        app: account
+        type: ms
+    spec:
+      containers:
+      - env:
+        - name: ACCOUNT_CASSANDRASEEDS
+          value: cassandra-0.cassandra:9042
+        - name: ACCOUNT_KAFKABROKERS
+          value: kafka-0.kafka:9092
+        image: subiz/account
+        imagePullPolicy: IfNotPresent
+        name: account
+---
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: user
+  name: user
+spec:
+  clusterIP: None
+  selector:
+    app: user
+
+---
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  labels:
+    app: user
+  name: user
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: user
+  serviceName: user
+  template:
+    metadata:
+      labels:
+        app: user
+        type: ms
+    spec:
+      containers:
+      - env:
+        - name: USER_CASSANDRASEEDS
+          value: cassandra-0.cassandra:9042
+        - name: USER_KAFKABROKERS
+          value: kafka-0.kafka:9092
+        image: subiz/user
+        imagePullPolicy: IfNotPresent
+        name: user
