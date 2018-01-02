@@ -127,7 +127,7 @@ func update() {
 
 			fmt.Printf("INFO: merging service %s (#%s)\n", sname, version)
 			merged := mergeYAML(moddeploy, deploy)
-			merged = addVersionAnnotation(merged)
+			//merged = addVersionAnnotation(merged)
 			//applyKubernetes(merge)
 
 			mutex.Lock()
@@ -246,7 +246,7 @@ func mergeYAML(a []byte, b []byte) (outyaml []byte) {
 	}
 	return
 }
-
+/*
 func addVersionAnnotation(inyaml []byte, version string) (outyaml []byte) {
 	// split config into multiple config delimited by ---
 	split := RegSplit(string(inyaml), "(?m:^[-]{3,})")
@@ -282,7 +282,7 @@ func addVersionAnnotation(inyaml []byte, version string) (outyaml []byte) {
 		}
 	}
 	return
-}
+}*/
 
 // parseConfig parse kubernetes config content into yaml object, name of config and kind of config.
 func parseConfig(content string) (map[interface{}]interface{}, string, string) {
