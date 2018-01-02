@@ -126,7 +126,7 @@ func update() {
 
 			fmt.Printf("INFO: merging service %s (#%s)\n", sname, version)
 			merged := mergeYAML(moddeploy, deploy)
-			//merged = addVersionAnnotation(merged)
+			merged = addVersionAnnotation(merged, version)
 			//applyKubernetes(merge)
 
 			mutex.Lock()
@@ -284,43 +284,41 @@ func mergeYAML(a []byte, b []byte) (outyaml []byte) {
 	}
 	return
 }
-/*
+
 func addVersionAnnotation(inyaml []byte, version string) (outyaml []byte) {
 	// split config into multiple config delimited by ---
 	split := RegSplit(string(inyaml), "(?m:^[-]{3,})")
 	for _, config := range split {
-		yamlb, nb, kb := parseConfig(config)
-		ismerged := false           // try to merge ca with cb if matched
-		for _, ca := range asplit { // should cache ca
-			yamla, na, ka := parseConfig(ca)
-			if na != nb || ka != kb {
-				continue
-			}
-			unuseds = removeString(unuseds, ca)
-			ret := mergeStruct(yamla, yamlb)
-			mergedyaml, err := yaml.Marshal(ret)
-			if err != nil {
-				panic(err)
-			}
-			outyaml = append(outyaml, "\n---\n"...)
-			outyaml = append(outyaml, mergedyaml...)
-			ismerged = true
-			break
+		config = strings.TrimSpace(config)
+		if config == "" {
+			continue
+		}
+		y := make(map[interface{}]interface{})
+		if err := yaml.Unmarshal([]byte(config), &y); err != nil {
+			panic(err)
+		}
+		metadata, _ := y["metadata"].(map[interface{}]interface{})
+		if metadata == nil {
+			metadata = make(map[interface{}]interface{})
+			y["metadata"] = metadata
 		}
 
-		if !ismerged { // still keep if not match
-			outyaml = append(outyaml, ("\n---\n" + cb)...)
+		annotations, _ := metadata["annotations"].(map[interface{}]interface{})
+		if annotations == nil {
+			annotations = make(map[interface{}]interface{})
+			metadata["annotations"] = annotations
 		}
-	}
 
-	for _, unused := range unuseds {
-		if unused != "" {
-			_, name, kind := parseConfig(unused)
-			fmt.Printf("WARN: unused config kind %s, name %s\n", kind, name)
+		annotations["version"] = version
+		versionedyaml, err := yaml.Marshal(y)
+		if err != nil {
+			panic(err)
 		}
+		outyaml = append(outyaml, "\n---\n"...)
+		outyaml = append(outyaml, versionedyaml...)
 	}
 	return
-}*/
+}
 
 // parseConfig parse kubernetes config content into yaml object, name of config and kind of config.
 func parseConfig(content string) (map[interface{}]interface{}, string, string) {
