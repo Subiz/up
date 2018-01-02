@@ -17,6 +17,7 @@ import (
 	"github.com/urfave/cli"
 	"github.com/valyala/fasthttp"
 	"gopkg.in/yaml.v2"
+	"github.com/thanhpk/stringf"
 )
 
 var username, password = os.Getenv("BBUSER"), os.Getenv("BBPASS")
@@ -31,7 +32,7 @@ type Version struct {
 func main() {
 	app := cli.NewApp()
 
-	app.Version = "0.1.0"
+	app.Version = "0.1.3"
 	cli.VersionFlag = cli.BoolFlag{
 		Name:  "version, V",
 		Usage: "print the version",
@@ -53,6 +54,30 @@ func main() {
 			Action: func(c *cli.Context) error {
 				return nil
 			},
+		}, {
+			Name: "build",
+			Aliases: []string{"b"},
+			Usage: "run build script",
+			Action: func(c *cli.Context) error {
+				build()
+				return nil
+			},
+		},
+		{
+			Name:  "up",
+			Usage: "build docker image and deploy to kubernetes dev environment",
+			Action: func(c *cli.Context) error {
+				up()
+				return nil
+			},
+		},
+		{
+			Name: "init",
+			Usage: "initialize a service",
+		},
+		{
+			Name:  "config",
+			Usage: "config environment",
 		},
 	}
 
@@ -92,16 +117,17 @@ func update() {
 				sver.Commit = commit
 			}
 			fmt.Printf("INFO: getting version for service %s at repo %s\n", sname, sver.Repo)
-			version := getVersionNumber(sver.Repo, sver.Commit, username, password)
-			version = strings.TrimSpace(version)
-			fmt.Printf("INFO: getting deployment for service %s at repo %s\n", sname, sver.Repo)
+			service := getService(sver.Repo, sver.Commit, username, password)
+			version := strconv.Itoa(service.Version)
+			fmt.Printf("INFO: getting deployment for service %s (#%s) at repo %s\n", sname, version, sver.Repo)
 			deploy := getDeployYaml(sver.Repo, sver.Commit, username, password)
-			deploy = []byte(strings.Replace(string(deploy), "$VERSION", version, -1))
+			deploy = []byte(compile(string(deploy), version, service.Name))
 			moddeploy := readDeployModification(sname)
-			moddeploy = []byte(strings.Replace(string(deploy), "$VERSION", version, -1))
+			moddeploy = []byte(compile(string(deploy), version, service.Name))
 
-			fmt.Printf("INFO: merging deployment for service %s\n", sname)
+			fmt.Printf("INFO: merging service %s (#%s)\n", sname, version)
 			merged := mergeYAML(moddeploy, deploy)
+			merged = addVersionAnnotation(merged)
 			//applyKubernetes(merge)
 
 			mutex.Lock()
@@ -221,6 +247,43 @@ func mergeYAML(a []byte, b []byte) (outyaml []byte) {
 	return
 }
 
+func addVersionAnnotation(inyaml []byte, version string) (outyaml []byte) {
+	// split config into multiple config delimited by ---
+	split := RegSplit(string(inyaml), "(?m:^[-]{3,})")
+	for _, config := range split {
+		yamlb, nb, kb := parseConfig(config)
+		ismerged := false           // try to merge ca with cb if matched
+		for _, ca := range asplit { // should cache ca
+			yamla, na, ka := parseConfig(ca)
+			if na != nb || ka != kb {
+				continue
+			}
+			unuseds = removeString(unuseds, ca)
+			ret := mergeStruct(yamla, yamlb)
+			mergedyaml, err := yaml.Marshal(ret)
+			if err != nil {
+				panic(err)
+			}
+			outyaml = append(outyaml, "\n---\n"...)
+			outyaml = append(outyaml, mergedyaml...)
+			ismerged = true
+			break
+		}
+
+		if !ismerged { // still keep if not match
+			outyaml = append(outyaml, ("\n---\n" + cb)...)
+		}
+	}
+
+	for _, unused := range unuseds {
+		if unused != "" {
+			_, name, kind := parseConfig(unused)
+			fmt.Printf("WARN: unused config kind %s, name %s\n", kind, name)
+		}
+	}
+	return
+}
+
 // parseConfig parse kubernetes config content into yaml object, name of config and kind of config.
 func parseConfig(content string) (map[interface{}]interface{}, string, string) {
 	y := make(map[interface{}]interface{})
@@ -289,14 +352,25 @@ func getLatestCommit(repo, branch, us, pw string) string {
 	return gjson.Get(string(body), "values.0.hash").String()
 }
 
-func getVersionNumber(repo, commit, us, pw string) string {
-	url := "https://bitbucket.org/" + repo + "/raw/" + commit + "/version"
+func getService(repo, commit, us, pw string) Service {
+	url := "https://bitbucket.org/" + repo + "/raw/" + commit + "/service.yaml"
 	code, body := getHTTP(url, us, pw, nil)
 	if code != 200 {
 		panic("request to " + url + " not return 200, got " + strconv.Itoa(code))
 	}
-	return string(body)
+
+	s := Service{}
+	if err := yaml.Unmarshal(body, &s); err != nil {
+		panic(err)
+	}
+	return s
 }
+
+func readDeployYaml() string {
+	data, _ := ioutil.ReadFile("deploy.yaml")
+	return string(data)
+}
+
 
 func getDeployYaml(repo, commit, us, pw string) []byte {
 	url := "https://bitbucket.org/" + repo + "/raw/" + commit + "/deploy.yaml"
@@ -399,4 +473,118 @@ func getYamlConfigVersion(content, kind, name string) string {
 
 func checkForChangesInVersion(filename, content string) {
 
+}
+
+func up() bool {
+	if !build() {
+		return false
+	}
+
+	service := parseService()
+	upstr := compile(service.BeforeUp, strconv.Itoa(service.Version), service.Name)
+	deploy := compile(readDeployYaml(), strconv.Itoa(service.Version), service.Name)
+	if err := ioutil.WriteFile("deploy-lock.yaml", []byte(deploy), 0644); err != nil {
+		panic(err)
+	}
+	upstr += "\nkubectl apply -f deploy-lock.yaml"
+	return execute("/bin/sh", upstr)
+}
+
+func compile(src, version, name string) string {
+	return stringf.Format(src, map[string]string{
+		"version": version,
+		"name": name,
+	})
+}
+
+func build() bool {
+	service := parseService()
+	buildstr := compile(service.Build, strconv.Itoa(service.Version), service.Name)
+	if !execute("/bin/sh", buildstr) {
+		return false
+	}
+	service.Version++
+	saveService(service)
+	return true
+}
+
+type Service struct {
+	Name string
+	Version int
+	Build, BeforeUp string
+}
+
+func saveService(s Service) {
+	data, err := yaml.Marshal(&s)
+	if err != nil {
+		panic(err)
+	}
+
+	if err := ioutil.WriteFile("service.yaml", data, 0644); err != nil {
+		panic(err)
+	}
+}
+
+func parseService() Service {
+	data, err := ioutil.ReadFile("service.yaml")
+	if err != nil {
+		panic(err)
+	}
+	s := Service{}
+	if err := yaml.Unmarshal(data, &s); err != nil {
+		panic(err)
+	}
+	return s
+}
+
+// exec a shell script
+func execute(shell, script string) (ok bool) {
+	tmpfile, err := ioutil.TempFile("", "script")
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove(tmpfile.Name()) // clean up
+
+	if _, err := tmpfile.Write([]byte(script)); err != nil {
+		panic(err)
+	}
+	if err := tmpfile.Close(); err != nil {
+		panic(err)
+	}
+
+	cmd := exec.Command(shell, "-e", tmpfile.Name())
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		panic(err)
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		panic(err)
+	}
+	cmd.Start()
+	chunk := make([]byte, 10)
+	for {
+		zero(chunk)
+		if _, err := stdout.Read(chunk); err != nil {
+			break
+		}
+		fmt.Print(string(chunk))
+	}
+	ok = true
+	for {
+		zero(chunk)
+		if _, err := stderr.Read(chunk); err != nil {
+			break
+		}
+		fmt.Print(string(chunk))
+		 ok = false
+	}
+	return ok
+}
+
+func zero(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
 }
