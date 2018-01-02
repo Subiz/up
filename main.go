@@ -12,7 +12,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
 	"github.com/tidwall/gjson"
 	"github.com/urfave/cli"
 	"github.com/valyala/fasthttp"
@@ -123,7 +122,7 @@ func update() {
 			deploy := getDeployYaml(sver.Repo, sver.Commit, username, password)
 			deploy = []byte(compile(string(deploy), version, service.Name))
 			moddeploy := readDeployModification(sname)
-			moddeploy = []byte(compile(string(deploy), version, service.Name))
+			moddeploy = []byte(compile(string(moddeploy), version, service.Name))
 
 			fmt.Printf("INFO: merging service %s (#%s)\n", sname, version)
 			merged := mergeYAML(moddeploy, deploy)
@@ -153,21 +152,54 @@ func update() {
 	fmt.Println("done.")
 }
 
-// merge 2 golang struct, x1's props overrides x2's props
-func mergeStruct(x1, x2 interface{}) interface{} {
-	switch x1 := x1.(type) {
-	case map[string]interface{}:
-		x2, ok := x2.(map[string]interface{})
+func mergeNamedArray(x1, x2 []interface{}) interface{} {
+	out := make([]map[interface{}]interface{}, 0)
+	for _, e1 := range x1 {
+		e1, ok := e1.(map[interface{}]interface{})
 		if !ok {
 			return x1
 		}
-		for k, v2 := range x2 {
-			if v1, ok := x1[k]; ok {
-				x1[k] = mergeStruct(v1, v2)
-			} else {
-				x1[k] = v2
+		name1, ok := e1["name"]
+		if !ok { 				// only merge array of name
+			return x1
+		}
+		// try to find x2 matching name
+		found := false
+		for i, e2 := range x2 {
+			e2, ok := e2.(map[interface{}]interface{})
+			if !ok {
+				return x1
+			}
+
+			name2, ok := e2["name"]
+			if !ok {
+				return x1
+			}
+			if name1 == name2 { // great, now merge
+				found = true
+				x2 = append(x2[:i], x2[i+1:]...)
+				out = append(out, mergeStruct(e1, e2).(map[interface{}]interface{}))
+				break
 			}
 		}
+		if !found {
+			out = append(out, e1)
+		}
+	}
+	// add all remaining x2 elements to out
+	for _, e := range x2 {
+		e, ok := e.(map[interface{}]interface{})
+		if !ok {
+			break
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// merge 2 golang struct, x1's props overrides x2's props
+func mergeStruct(x1, x2 interface{}) interface{} {
+	switch x1 := x1.(type) {
 	case map[interface{}]interface{}:
 		x2, ok := x2.(map[interface{}]interface{})
 		if !ok {
@@ -182,6 +214,12 @@ func mergeStruct(x1, x2 interface{}) interface{} {
 		}
 	case nil:
 		return x2
+	case []interface{}:
+		x2, ok := x2.([]interface{})
+		if !ok {
+			return x1
+		}
+		return mergeNamedArray(x1, x2)
 	default:
 		return x1
 	}
@@ -443,7 +481,6 @@ func getKubeConfigVersions(filename string) (kinds, names, versions []string) {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(string(data))
 	resources := strings.Split(string(data), "\n")
 	for _, r := range resources {
 		rsplit := strings.Split(r, " ")
