@@ -31,7 +31,7 @@ type Version struct {
 func main() {
 	app := cli.NewApp()
 
-	app.Version = "0.1.3"
+	app.Version = "0.1.5"
 	cli.VersionFlag = cli.BoolFlag{
 		Name:  "version, V",
 		Usage: "print the version",
@@ -126,9 +126,7 @@ func update() {
 
 			fmt.Printf("INFO: merging service %s (#%s)\n", sname, version)
 			merged := mergeYAML(moddeploy, deploy)
-			merged = addVersionAnnotation(merged, version)
-			//applyKubernetes(merge)
-
+			merged = addVersionAnnotation(merged, version, service.Name)
 			mutex.Lock()
 			outyaml = append(outyaml, "---\n"...)
 			outyaml = append(outyaml, merged...)
@@ -285,7 +283,7 @@ func mergeYAML(a []byte, b []byte) (outyaml []byte) {
 	return
 }
 
-func addVersionAnnotation(inyaml []byte, version string) (outyaml []byte) {
+func addVersionAnnotation(inyaml []byte, version, service string) (outyaml []byte) {
 	// split config into multiple config delimited by ---
 	split := RegSplit(string(inyaml), "(?m:^[-]{3,})")
 	for _, config := range split {
@@ -310,6 +308,7 @@ func addVersionAnnotation(inyaml []byte, version string) (outyaml []byte) {
 		}
 
 		annotations["version"] = version
+		annotations["service"] = service
 		versionedyaml, err := yaml.Marshal(y)
 		if err != nil {
 			panic(err)
@@ -330,12 +329,11 @@ func parseConfig(content string) (map[interface{}]interface{}, string, string) {
 	return y, name, kind
 }
 
-/*
-func applyKubernetes(deploy []byte) {
+func kube(deploy []byte) {
 	// write deploy to temp file
 	tmpfile, err := ioutil.TempFile("", "deploy")
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	defer os.Remove(tmpfile.Name()) // clean up
 
@@ -346,16 +344,20 @@ func applyKubernetes(deploy []byte) {
 		panic(err)
 	}
 
-	kinds, names, versions := getKubeConfigVersions(tmpfile.Name())
+	var changedService = make(map[string]bool)
+	kinds, names, versions, services := getKubeConfigVersions(tmpfile.Name())
 	for i := range kinds {
-
+		vers, _ := getYamlConfigVersion(string(deploy), kinds[i], names[i])
+		if vers == versions[i] {
+			changedService[services[i]] = true
+		}
 	}
 
 	// call shell to apply kubernetes
 	cmd := exec.Command("kubectl", "apply", "-f", tmpfile.Name())
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	cmd.Start()
 
@@ -367,7 +369,7 @@ func applyKubernetes(deploy []byte) {
 		fmt.Print(chunk)
 	}
 }
-*/
+
 func readDeployModification(sname string) []byte {
 	data, err := ioutil.ReadFile(sname + ".yaml")
 	if err != nil {
@@ -474,8 +476,8 @@ func removeString(s []string, r string) []string {
 	return s
 }
 
-func getKubeConfigVersions(filename string) (kinds, names, versions []string) {
-	data, err := exec.Command("kubectl", "get", "-f", filename, "-o", "jsonpath={range .items[*]}{@.metadata.name}{\" \"}{@.kind}{\" \"}{@.metadata.annotations.version}{\"\\n\"}{end}").Output()
+func getKubeConfigVersions(filename string) (kinds, names, versions, services []string) {
+	data, err := exec.Command("kubectl", "get", "-f", filename, "-o", "jsonpath={range .items[*]}{@.metadata.name}{\" \"}{@.kind}{\" \"}{@.metadata.annotations.version}{\" \"}{@.metadata.annotations.service}{\"\\n\"}{end}").Output()
 	if err != nil {
 		panic(err)
 	}
@@ -492,22 +494,19 @@ func getKubeConfigVersions(filename string) (kinds, names, versions []string) {
 	return
 }
 
-func getYamlConfigVersion(content, kind, name string) string {
+func getYamlConfigVersion(content, kind, name string) (string, string) {
 	configs := RegSplit(content, "(?m:^[-]{3,})")
 	for _, c := range configs {
 		y, n, k := parseConfig(c)
 		if n == name && k == kind {
 			if annos, ok := y["annotations"].(map[interface{}]interface{}); ok {
 				version, _ := annos["version"].(string)
-				return version
+				service, _ := annos["service"].(string)
+				return version, service
 			}
 		}
 	}
-	return ""
-}
-
-func checkForChangesInVersion(filename, content string) {
-
+	return "", ""
 }
 
 func up() bool {
