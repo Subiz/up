@@ -31,7 +31,7 @@ type Version struct {
 func main() {
 	app := cli.NewApp()
 
-	app.Version = "0.1.5"
+	app.Version = "0.1.6"
 	cli.VersionFlag = cli.BoolFlag{
 		Name:  "version, V",
 		Usage: "print the version",
@@ -533,11 +533,11 @@ func compile(src, version, name string) string {
 
 func build() bool {
 	service := parseService()
+	service.Version++
 	buildstr := compile(service.Build, strconv.Itoa(service.Version), service.Name)
 	if !execute("/bin/sh", buildstr) {
 		return false
 	}
-	service.Version++
 	saveService(service)
 	return true
 }
