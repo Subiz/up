@@ -1,33 +1,34 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
+	toml "github.com/BurntSushi/toml"
+	"github.com/thanhpk/stringf"
+	"github.com/tidwall/gjson"
+	"github.com/urfave/cli"
+	"github.com/valyala/fasthttp"
+	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"os/user"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"github.com/tidwall/gjson"
-	"github.com/urfave/cli"
-	"github.com/valyala/fasthttp"
-	"gopkg.in/yaml.v2"
-	"github.com/thanhpk/stringf"
-	toml "github.com/BurntSushi/toml"
-	"bytes"
-	"os/user"
 )
 
 const ServiceCachePath = "./services"
 const ConfigPath = ".up"
 
 type ByName []Service
-func (n ByName) Len() int { return len(n) }
-func (n ByName) Swap(i, j int) { n[i], n[j] = n[j], n[i] }
+
+func (n ByName) Len() int           { return len(n) }
+func (n ByName) Swap(i, j int)      { n[i], n[j] = n[j], n[i] }
 func (n ByName) Less(i, j int) bool { return n[i].Name < n[j].Name }
 
 type Config struct {
@@ -35,7 +36,8 @@ type Config struct {
 }
 
 type ByKindAndName []Config
-func (n ByKindAndName) Len() int { return len(n) }
+
+func (n ByKindAndName) Len() int      { return len(n) }
 func (n ByKindAndName) Swap(i, j int) { n[i], n[j] = n[j], n[i] }
 func (n ByKindAndName) Less(i, j int) bool {
 	if n[i].Name == n[j].Name {
@@ -52,18 +54,18 @@ type Version struct {
 }
 
 type UpConfig struct {
-	Bbuser string `toml:"bitbucket_user"`
-	Bbpass string `toml:"bitbucket_pass"`
+	Bbuser     string `toml:"bitbucket_user"`
+	Bbpass     string `toml:"bitbucket_pass"`
 	Dockeruser string `toml:"docker_user"`
 	Dockerpass string `toml:"docker_pass"`
-	Stag string `toml:"stag"`
-	Prod string `toml:"prod"`
-	Dev string `toml:"dev"`
+	Stag       string `toml:"stag"`
+	Prod       string `toml:"prod"`
+	Dev        string `toml:"dev"`
 }
 
 var gconfig UpConfig
 
-func loadUpConfig()  {
+func loadUpConfig() {
 	usr, err := user.Current()
 	if err != nil {
 		panic(err)
@@ -115,14 +117,14 @@ func config(c *cli.Context) error {
 func saveUpConfig() {
 	buf := new(bytes.Buffer)
 	if err := toml.NewEncoder(buf).Encode(gconfig); err != nil {
-    panic(err)
+		panic(err)
 	}
 	usr, err := user.Current()
 	if err != nil {
 		panic(err)
 	}
-	os.Mkdir(usr.HomeDir + "/" + ConfigPath, 0777)
-	if err = ioutil.WriteFile(usr.HomeDir + "/" + ConfigPath + "/ignoreme.toml", buf.Bytes(), 0644); err != nil {
+	os.Mkdir(usr.HomeDir+"/"+ConfigPath, 0777)
+	if err = ioutil.WriteFile(usr.HomeDir+"/"+ConfigPath+"/ignoreme.toml", buf.Bytes(), 0644); err != nil {
 		panic(err)
 	}
 }
@@ -155,6 +157,12 @@ func tryLoginBb() {
 	fmt.Printf("welcome %s.\n", gjson.Get(string(body), "user.display_name").String())
 }
 
+func push() {
+	service := parseService()
+	pushstr := compile(service.Push, strconv.Itoa(service.Version), service.Name)
+	execute("/bin/sh", pushstr)
+}
+
 func main() {
 	loadUpConfig()
 	app := cli.NewApp()
@@ -165,7 +173,15 @@ func main() {
 	}
 	app.Commands = []cli.Command{
 		{
-			Name: "config",
+			Name:  "push",
+			Usage: "push to docker",
+			Action: func(c *cli.Context) error {
+				push()
+				return nil
+			},
+		},
+		{
+			Name:  "config",
 			Usage: "set config: bitbucket_user, bitbucket_pass, docker_user, docker_pass, stag, prod, dev",
 			Action: func(c *cli.Context) error {
 				return config(c)
@@ -197,9 +213,17 @@ func main() {
 				return nil
 			},
 		}, {
-			Name: "build",
+			Name:  "rebuild",
+			Usage: "run build script but DOES NOT increase version",
+			Action: func(c *cli.Context) error {
+				rebuild()
+				return nil
+			},
+		},
+		{
+			Name:    "build",
 			Aliases: []string{"b"},
-			Usage: "run build script",
+			Usage:   "run build script, increase version",
 			Action: func(c *cli.Context) error {
 				build()
 				return nil
@@ -214,14 +238,13 @@ func main() {
 			},
 		},
 		{
-			Name: "init",
+			Name:  "init",
 			Usage: "initialize a service",
 		},
 		{
 			Name:  "config",
 			Usage: "config environment",
 		},
-
 	}
 
 	sort.Sort(cli.FlagsByName(app.Flags))
@@ -236,7 +259,7 @@ func printServices(services []Service) {
 	for _, s := range services {
 		fmt.Printf("%s %s #%d\n", s.Commit[:7], s.Name, s.Version)
 	}
-	fmt.Printf("total %d services.\n", len(services) )
+	fmt.Printf("total %d services.\n", len(services))
 }
 
 func sortDeployment(dep []byte) []byte {
@@ -249,8 +272,8 @@ func sortDeployment(dep []byte) []byte {
 		}
 		_, name, kind := parseConfig(config)
 		configs = append(configs, Config{
-			Name: name,
-			Kind: kind,
+			Name:    name,
+			Kind:    kind,
 			Content: config,
 		})
 	}
@@ -265,7 +288,7 @@ func sortDeployment(dep []byte) []byte {
 
 func saveDeploy(name string, deploy []byte) {
 	_ = os.Mkdir(ServiceCachePath, 0777)
-	if err := ioutil.WriteFile(ServiceCachePath + "/" + name + ".yaml", deploy, 0644); err != nil {
+	if err := ioutil.WriteFile(ServiceCachePath+"/"+name+".yaml", deploy, 0644); err != nil {
 		panic(err)
 	}
 }
@@ -397,7 +420,7 @@ func mergeNamedArray(x1, x2 []interface{}) interface{} {
 			return x1
 		}
 		name1, ok := e1["name"]
-		if !ok { 				// only merge array of name
+		if !ok { // only merge array of name
 			return x1
 		}
 		// try to find x2 matching name
@@ -648,7 +671,6 @@ func readDeployYaml() string {
 	return string(data)
 }
 
-
 func getDeployYaml(repo, commit, us, pw string) []byte {
 	url := "https://bitbucket.org/" + repo + "/raw/" + commit + "/deploy.yaml"
 	code, body := getHTTP(url, us, pw, nil)
@@ -766,8 +788,17 @@ func up() bool {
 func compile(src, version, name string) string {
 	return stringf.Format(src, map[string]string{
 		"version": version,
-		"name": name,
+		"name":    name,
 	})
+}
+
+func rebuild() bool {
+	service := parseService()
+	buildstr := compile(service.Build, strconv.Itoa(service.Version), service.Name)
+	if !execute("/bin/sh", buildstr) {
+		return false
+	}
+	return true
 }
 
 func build() bool {
@@ -782,10 +813,11 @@ func build() bool {
 }
 
 type Service struct {
-	Name string
-	Commit string
-	Version int
+	Name            string
+	Commit          string
+	Version         int
 	Build, BeforeUp string
+	Push            string
 }
 
 func saveService(s Service) {
