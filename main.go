@@ -46,6 +46,13 @@ func (n ByKindAndName) Less(i, j int) bool {
 	return n[i].Name < n[j].Name
 }
 
+type Service struct {
+	Name            string
+	Commit          string
+	Version         int
+	Build, BeforeUp string
+}
+
 type Version struct {
 	Commit  string
 	Repo    string
@@ -56,8 +63,6 @@ type Version struct {
 type UpConfig struct {
 	Bbuser     string `toml:"bitbucket_user"`
 	Bbpass     string `toml:"bitbucket_pass"`
-	Dockeruser string `toml:"docker_user"`
-	Dockerpass string `toml:"docker_pass"`
 	Stag       string `toml:"stag"`
 	Prod       string `toml:"prod"`
 	Dev        string `toml:"dev"`
@@ -85,12 +90,6 @@ func config(c *cli.Context) error {
 	case "bitbucket_pass":
 		gconfig.Bbpass = value
 		tryLoginBb()
-	case "docker_user":
-		gconfig.Dockeruser = value
-		tryLoginDocker()
-	case "docker_pass":
-		gconfig.Dockerpass = value
-		tryLoginDocker()
 	case "stag":
 		gconfig.Stag = value
 	case "prod":
@@ -126,19 +125,6 @@ func saveUpConfig() {
 	}
 }
 
-func tryLoginDocker() {
-	if gconfig.Dockerpass == "" || gconfig.Dockeruser == "" {
-		return
-	}
-
-	data, err := exec.Command("docker", "login", "-u", gconfig.Dockeruser, "-p", gconfig.Dockerpass).Output()
-	if err != nil {
-		fmt.Println("cannot login to docker")
-	}
-
-	fmt.Println(string(data))
-}
-
 func tryLoginBb() {
 	if gconfig.Bbpass == "" || gconfig.Bbuser == "" {
 		return
@@ -154,16 +140,10 @@ func tryLoginBb() {
 	fmt.Printf("welcome %s.\n", gjson.Get(string(body), "user.display_name").String())
 }
 
-func push() {
-	service := parseService()
-	pushstr := compile(service.Push, strconv.Itoa(service.Version), service.Name)
-	execute("/bin/sh", pushstr)
-}
-
 func main() {
 	loadUpConfig()
 	app := cli.NewApp()
-	app.Version = "0.2.4"
+	app.Version = "0.2.5"
 	cli.VersionFlag = cli.BoolFlag{
 		Name:  "version, V",
 		Usage: "print the version",
@@ -179,16 +159,8 @@ func main() {
 			},
 		},
 		{
-			Name:  "push",
-			Usage: "push to docker",
-			Action: func(c *cli.Context) error {
-				push()
-				return nil
-			},
-		},
-		{
 			Name:  "config",
-			Usage: "set config: bitbucket_user, bitbucket_pass, docker_user, docker_pass, stag, prod, dev",
+			Usage: "set config: bitbucket_user, bitbucket_pass, stag, prod, dev",
 			Action: func(c *cli.Context) error {
 				return config(c)
 			},
@@ -237,7 +209,7 @@ func main() {
 		},
 		{
 			Name:  "up",
-			Usage: "build docker image and deploy to kubernetes dev environment",
+			Usage: "build and deploy to kubernetes dev environment",
 			Action: func(c *cli.Context) error {
 				up()
 				return nil
@@ -816,14 +788,6 @@ func build() bool {
 	}
 	saveService(service)
 	return true
-}
-
-type Service struct {
-	Name            string
-	Commit          string
-	Version         int
-	Build, BeforeUp string
-	Push            string
 }
 
 func saveService(s Service) {
