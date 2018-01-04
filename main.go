@@ -24,6 +24,20 @@ func (n ByName) Len() int { return len(n) }
 func (n ByName) Swap(i, j int) { n[i], n[j] = n[j], n[i] }
 func (n ByName) Less(i, j int) bool { return n[i].Name < n[j].Name }
 
+type Config struct {
+	Kind, Name, Content string
+}
+
+type ByKindAndName []Config
+func (n ByKindAndName) Len() int { return len(n) }
+func (n ByKindAndName) Swap(i, j int) { n[i], n[j] = n[j], n[i] }
+func (n ByKindAndName) Less(i, j int) bool {
+	if n[i].Name == n[j].Name {
+		return n[i].Kind < n[j].Kind
+	}
+	return n[i].Name < n[j].Name
+}
+
 var username, password = os.Getenv("BBUSER"), os.Getenv("BBPASS")
 
 type Version struct {
@@ -101,6 +115,31 @@ func printServices(services []Service) {
 	fmt.Printf("total %d services.\n", len(services) )
 }
 
+func sortDeployment(dep []byte) []byte {
+	depsplit := RegSplit(string(dep), "(?m:^[-]{3,})")
+	configs := make([]Config, 0)
+	for _, config := range depsplit {
+		config = strings.TrimSpace(config)
+		if config == "" {
+			continue
+		}
+		_, name, kind := parseConfig(config)
+		configs = append(configs, Config{
+			Name: name,
+			Kind: kind,
+			Content: config,
+		})
+	}
+	sort.Sort(ByKindAndName(configs))
+
+	depsplit = make([]string, 0)
+	for _, config := range configs {
+		depsplit = append(depsplit, config.Content)
+	}
+	return []byte(strings.Join(depsplit, "\n---\n"))
+}
+
+
 func update() {
 	version, err := ioutil.ReadFile("up.yaml")
 	if err != nil || string(version) == "" {
@@ -159,6 +198,7 @@ func update() {
 	}
 
 	printServices(outServices)
+	outyaml = sortDeployment(outyaml)
 	if err := ioutil.WriteFile("up-lock.yaml", version, 0644); err != nil {
 		panic(err)
 	}
