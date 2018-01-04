@@ -13,7 +13,6 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
-	"os/user"
 	"regexp"
 	"sort"
 	"strconv"
@@ -70,12 +69,12 @@ type UpConfig struct {
 
 var gconfig UpConfig
 
+func getHomeDir() string {
+	return strings.TrimSpace(os.Getenv("HOME"))
+}
+
 func loadUpConfig() {
-	usr, err := user.Current()
-	if err != nil {
-		panic(err)
-	}
-	blob, _ := ioutil.ReadFile(usr.HomeDir + "/" + ConfigPath + "/ignoreme.toml")
+	blob, _ := ioutil.ReadFile(getHomeDir() + "/" + ConfigPath + "/ignoreme.toml")
 	if _, err := toml.Decode(string(blob), &gconfig); err != nil {
 		fmt.Println("WARN: config file error", err)
 	}
@@ -115,12 +114,9 @@ func saveUpConfig() {
 	if err := toml.NewEncoder(buf).Encode(gconfig); err != nil {
 		panic(err)
 	}
-	usr, err := user.Current()
-	if err != nil {
-		panic(err)
-	}
-	os.Mkdir(usr.HomeDir+"/"+ConfigPath, 0777)
-	if err = ioutil.WriteFile(usr.HomeDir+"/"+ConfigPath+"/ignoreme.toml", buf.Bytes(), 0644); err != nil {
+	fmt.Println(getHomeDir()+"/"+ConfigPath)
+	os.Mkdir(getHomeDir()+"/"+ConfigPath, 0777)
+	if err := ioutil.WriteFile(getHomeDir()+"/"+ConfigPath+"/ignoreme.toml", buf.Bytes(), 0644); err != nil {
 		panic(err)
 	}
 }
@@ -143,7 +139,7 @@ func tryLoginBb() {
 func main() {
 	loadUpConfig()
 	app := cli.NewApp()
-	app.Version = "0.2.5"
+	app.Version = "0.2.6"
 	cli.VersionFlag = cli.BoolFlag{
 		Name:  "version, V",
 		Usage: "print the version",
