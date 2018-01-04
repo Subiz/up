@@ -19,6 +19,11 @@ import (
 	"github.com/thanhpk/stringf"
 )
 
+type ByName []Service
+func (n ByName) Len() int { return len(n) }
+func (n ByName) Swap(i, j int) { n[i], n[j] = n[j], n[i] }
+func (n ByName) Less(i, j int) bool { return n[i].Name < n[j].Name }
+
 var username, password = os.Getenv("BBUSER"), os.Getenv("BBPASS")
 
 type Version struct {
@@ -78,12 +83,22 @@ func main() {
 			Name:  "config",
 			Usage: "config environment",
 		},
+
 	}
 
 	sort.Sort(cli.FlagsByName(app.Flags))
 	sort.Sort(cli.CommandsByName(app.Commands))
 
 	app.Run(os.Args)
+}
+
+func printServices(services []Service) {
+	sort.Sort(ByName(services))
+	fmt.Println("--")
+	for _, s := range services {
+		fmt.Printf("%s %s #%d\n", s.Commit[:7], s.Name, s.Version)
+	}
+	fmt.Printf("total %d services.\n", len(services) )
 }
 
 func update() {
@@ -96,6 +111,8 @@ func update() {
 	if err := yaml.Unmarshal(version, &v); err != nil {
 		panic(err)
 	}
+
+	outServices := make([]Service, 0)
 
 	mutex := &sync.Mutex{}
 	// loop through version
@@ -115,10 +132,9 @@ func update() {
 				}
 				sver.Commit = commit
 			}
-			fmt.Printf("INFO: getting version for service %s at repo %s\n", sname, sver.Repo)
+			fmt.Printf("INFO: fetching repo %s (%s)\n", sver.Repo, sver.Commit[:7])
 			service := getService(sver.Repo, sver.Commit, username, password)
 			version := strconv.Itoa(service.Version)
-			fmt.Printf("INFO: getting deployment for service %s (#%s) at repo %s\n", sname, version, sver.Repo)
 			deploy := getDeployYaml(sver.Repo, sver.Commit, username, password)
 			deploy = []byte(compile(string(deploy), version, service.Name))
 			moddeploy := readDeployModification(sname)
@@ -128,6 +144,8 @@ func update() {
 			merged := mergeYAML(moddeploy, deploy)
 			merged = addVersionAnnotation(merged, version, service.Name)
 			mutex.Lock()
+			service.Commit = sver.Commit
+			outServices = append(outServices, service)
 			outyaml = append(outyaml, "---\n"...)
 			outyaml = append(outyaml, merged...)
 			sver.Version = version
@@ -140,6 +158,7 @@ func update() {
 		panic(err)
 	}
 
+	printServices(outServices)
 	if err := ioutil.WriteFile("up-lock.yaml", version, 0644); err != nil {
 		panic(err)
 	}
@@ -376,7 +395,7 @@ func readDeployModification(sname string) []byte {
 		fmt.Printf("INFO: no modification deploy for service %s: %v\n", sname, err)
 		return nil
 	}
-	fmt.Printf("INFO: got modification deploy for service %s\n", sname)
+	//fmt.Printf("INFO: got modification deploy for service %s\n", sname)
 	return data
 }
 
@@ -544,6 +563,7 @@ func build() bool {
 
 type Service struct {
 	Name string
+	Commit string
 	Version int
 	Build, BeforeUp string
 }
