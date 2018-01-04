@@ -19,6 +19,8 @@ import (
 	"github.com/thanhpk/stringf"
 )
 
+const ServiceCachePath = "./services"
+
 type ByName []Service
 func (n ByName) Len() int { return len(n) }
 func (n ByName) Swap(i, j int) { n[i], n[j] = n[j], n[i] }
@@ -57,11 +59,20 @@ func main() {
 	}
 	app.Commands = []cli.Command{
 		{
-			Name:    "update",
+			Name:    "upgrade",
 			Aliases: []string{"u"},
-			Usage:   "update all repo and build lock files",
+			Usage:   "fetch for new version of all service into up-lock.yaml",
 			Action: func(c *cli.Context) error {
-				update()
+				upgrade()
+				return nil
+			},
+		},
+		{
+			Name:    "merge",
+			Aliases: []string{"m"},
+			Usage:   "merge all deployment file and its modification",
+			Action: func(c *cli.Context) error {
+				merge()
 				return nil
 			},
 		},
@@ -139,8 +150,22 @@ func sortDeployment(dep []byte) []byte {
 	return []byte(strings.Join(depsplit, "\n---\n"))
 }
 
+func saveDeploy(name string, deploy []byte) {
+	_ = os.Mkdir(ServiceCachePath, 0777)
+	if err := ioutil.WriteFile(ServiceCachePath + "/" + name + ".yaml", deploy, 0644); err != nil {
+		panic(err)
+	}
+}
 
-func update() {
+func loadDeploy(name string) []byte {
+	deploy, err := ioutil.ReadFile(ServiceCachePath + "/" + name + ".yaml")
+	if err != nil {
+		panic(err)
+	}
+	return deploy
+}
+
+func upgrade() {
 	version, err := ioutil.ReadFile("up.yaml")
 	if err != nil || string(version) == "" {
 		panic("unable to read ./up.yaml file")
@@ -154,11 +179,7 @@ func update() {
 	outServices := make([]Service, 0)
 
 	mutex := &sync.Mutex{}
-	// loop through version
-	// try to get original deploy.yaml in repo then merge it with devop
-	// modification
 	var wg sync.WaitGroup
-	outyaml := make([]byte, 0)
 	for sname, sver := range v {
 		wg.Add(1)
 		go func(sname string, sver *Version) {
@@ -175,18 +196,13 @@ func update() {
 			service := getService(sver.Repo, sver.Commit, username, password)
 			version := strconv.Itoa(service.Version)
 			deploy := getDeployYaml(sver.Repo, sver.Commit, username, password)
-			deploy = []byte(compile(string(deploy), version, service.Name))
-			moddeploy := readDeployModification(sname)
-			moddeploy = []byte(compile(string(moddeploy), version, service.Name))
 
-			fmt.Printf("INFO: merging service %s (#%s)\n", sname, version)
-			merged := mergeYAML(moddeploy, deploy)
-			merged = addVersionAnnotation(merged, version, service.Name)
+			fmt.Printf("INFO: save deployment for service %s at %s/%s.yaml\n", service.Name, ServiceCachePath, service.Name)
+			saveDeploy(service.Name, deploy)
+
 			mutex.Lock()
 			service.Commit = sver.Commit
 			outServices = append(outServices, service)
-			outyaml = append(outyaml, "---\n"...)
-			outyaml = append(outyaml, merged...)
 			sver.Version = version
 			mutex.Unlock()
 		}(sname, sver)
@@ -198,15 +214,56 @@ func update() {
 	}
 
 	printServices(outServices)
-	outyaml = sortDeployment(outyaml)
+
 	if err := ioutil.WriteFile("up-lock.yaml", version, 0644); err != nil {
 		panic(err)
 	}
+	fmt.Println("up-lock.yaml are written")
+}
+
+func merge() {
+	version, err := ioutil.ReadFile("up-lock.yaml")
+	if err != nil || string(version) == "" {
+		panic("unable to read ./up-lock.yaml")
+	}
+
+	v := make(map[string]*Version) // version in map format
+	if err := yaml.Unmarshal(version, &v); err != nil {
+		panic(err)
+	}
+
+	mutex := &sync.Mutex{}
+	// loop through version
+	// try to get original deploy.yaml in repo then merge it with devop
+	// modification
+	var wg sync.WaitGroup
+	outyaml := make([]byte, 0)
+	for sname, sver := range v {
+		wg.Add(1)
+		go func(sname string, sver *Version) {
+			defer wg.Done()
+			deploy := loadDeploy(sname)
+
+			deploy = []byte(compile(string(deploy), sver.Version, sname))
+			moddeploy := readDeployModification(sname)
+			moddeploy = []byte(compile(string(moddeploy), sver.Version, sname))
+
+			fmt.Printf("INFO: merging service %s (#%s)\n", sname, sver.Version)
+			merged := mergeYAML(moddeploy, deploy)
+			merged = addVersionAnnotation(merged, sver.Version, sname)
+			mutex.Lock()
+			outyaml = append(outyaml, "---\n"...)
+			outyaml = append(outyaml, merged...)
+			mutex.Unlock()
+		}(sname, sver)
+	}
+	wg.Wait()
+
+	outyaml = sortDeployment(outyaml)
 	if err := ioutil.WriteFile("deploy-lock.yaml", outyaml, 0644); err != nil {
 		panic(err)
 	}
-	fmt.Println("up-lock.yaml, deploy-lock.yaml are written")
-	fmt.Println("done.")
+	fmt.Println("deploy-lock.yaml are written")
 }
 
 func mergeNamedArray(x1, x2 []interface{}) interface{} {
