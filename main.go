@@ -70,10 +70,7 @@ func loadUpConfig() {
 	if err != nil {
 		panic(err)
 	}
-	blob, err := ioutil.ReadFile(usr.HomeDir + "/" + ConfigPath + "/ignoreme.toml")
-	if err != nil {
-		fmt.Println("WARN: cannot read config in " + ConfigPath + "/ignoreme.toml")
-	}
+	blob, _ := ioutil.ReadFile(usr.HomeDir + "/" + ConfigPath + "/ignoreme.toml")
 	if _, err := toml.Decode(string(blob), &gconfig); err != nil {
 		fmt.Println("WARN: config file error", err)
 	}
@@ -172,6 +169,15 @@ func main() {
 		Usage: "print the version",
 	}
 	app.Commands = []cli.Command{
+		{
+			Name: "info",
+			Aliases: []string{"i"},
+			Usage: "get info of the service",
+			Action: func(c *cli.Context) error {
+				info(c)
+				return nil
+			},
+		},
 		{
 			Name:  "push",
 			Usage: "push to docker",
@@ -892,5 +898,16 @@ func execute(shell, script string) (ok bool) {
 func zero(b []byte) {
 	for i := range b {
 		b[i] = 0
+	}
+}
+
+func info(c *cli.Context) {
+	service := parseService()
+	key := c.Args().Get(0)
+	switch key {
+	case "name", "n":
+		fmt.Print(service.Name)
+	case "version", "v":
+		fmt.Print(service.Version)
 	}
 }
