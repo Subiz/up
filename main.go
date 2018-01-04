@@ -17,9 +17,13 @@ import (
 	"github.com/valyala/fasthttp"
 	"gopkg.in/yaml.v2"
 	"github.com/thanhpk/stringf"
+	toml "github.com/BurntSushi/toml"
+	"bytes"
+	"os/user"
 )
 
 const ServiceCachePath = "./services"
+const ConfigPath = ".up"
 
 type ByName []Service
 func (n ByName) Len() int { return len(n) }
@@ -40,8 +44,6 @@ func (n ByKindAndName) Less(i, j int) bool {
 	return n[i].Name < n[j].Name
 }
 
-var username, password = os.Getenv("BBUSER"), os.Getenv("BBPASS")
-
 type Version struct {
 	Commit  string
 	Repo    string
@@ -49,15 +51,126 @@ type Version struct {
 	Version string
 }
 
-func main() {
-	app := cli.NewApp()
+type UpConfig struct {
+	Bbuser string `toml:"bitbucket_user"`
+	Bbpass string `toml:"bitbucket_pass"`
+	Dockeruser string `toml:"docker_user"`
+	Dockerpass string `toml:"docker_pass"`
+	Stag string `toml:"stag"`
+	Prod string `toml:"prod"`
+	Dev string `toml:"dev"`
+}
 
-	app.Version = "0.1.6"
+var gconfig UpConfig
+
+func loadUpConfig()  {
+	usr, err := user.Current()
+	if err != nil {
+		panic(err)
+	}
+	blob, err := ioutil.ReadFile(usr.HomeDir + "/" + ConfigPath + "/ignoreme.toml")
+	if err != nil {
+		fmt.Println("WARN: cannot read config in " + ConfigPath + "/ignoreme.toml")
+	}
+	if _, err := toml.Decode(string(blob), &gconfig); err != nil {
+		fmt.Println("WARN: config file error", err)
+	}
+}
+
+func config(c *cli.Context) error {
+	name, value := c.Args().Get(0), c.Args().Get(1)
+	switch name {
+	case "bitbucket_user":
+		gconfig.Bbuser = value
+		tryLoginBb()
+	case "bitbucket_pass":
+		gconfig.Bbpass = value
+		tryLoginBb()
+	case "docker_user":
+		gconfig.Dockeruser = value
+		tryLoginDocker()
+	case "docker_pass":
+		gconfig.Dockerpass = value
+		tryLoginDocker()
+	case "stag":
+		gconfig.Stag = value
+	case "prod":
+		gconfig.Prod = value
+	case "dev":
+		gconfig.Dev = value
+	case "clear":
+		gconfig = UpConfig{}
+	case "get":
+		fmt.Printf("stag: %s\nprod: %s\ndev %s\n", gconfig.Stag, gconfig.Prod, gconfig.Dev)
+		return nil
+	default:
+		fmt.Printf("unknown config")
+		return nil
+	}
+	saveUpConfig()
+	fmt.Println("done.")
+	return nil
+}
+
+func saveUpConfig() {
+	buf := new(bytes.Buffer)
+	if err := toml.NewEncoder(buf).Encode(gconfig); err != nil {
+    panic(err)
+	}
+	usr, err := user.Current()
+	if err != nil {
+		panic(err)
+	}
+	os.Mkdir(usr.HomeDir + "/" + ConfigPath, 0777)
+	if err = ioutil.WriteFile(usr.HomeDir + "/" + ConfigPath + "/ignoreme.toml", buf.Bytes(), 0644); err != nil {
+		panic(err)
+	}
+}
+
+func tryLoginDocker() {
+	if gconfig.Dockerpass == "" || gconfig.Dockeruser == "" {
+		return
+	}
+
+	data, err := exec.Command("docker", "login", "-u", gconfig.Dockeruser, "-p", gconfig.Dockerpass).Output()
+	if err != nil {
+		fmt.Println("cannot login to docker")
+	}
+
+	fmt.Println(string(data))
+}
+
+func tryLoginBb() {
+	if gconfig.Bbpass == "" || gconfig.Bbuser == "" {
+		return
+	}
+
+	url := "https://api.bitbucket.org/1.0/user"
+	code, body := getHTTP(url, gconfig.Bbuser, gconfig.Bbpass, nil)
+	if code != 200 {
+		fmt.Printf("ERR: cant login, got code %d\n", code)
+		return
+	}
+
+	fmt.Printf("welcome %s.\n", gjson.Get(string(body), "user.display_name").String())
+}
+
+func main() {
+	loadUpConfig()
+	app := cli.NewApp()
+	app.Version = "0.2.4"
 	cli.VersionFlag = cli.BoolFlag{
 		Name:  "version, V",
 		Usage: "print the version",
 	}
 	app.Commands = []cli.Command{
+		{
+			Name: "config",
+			Usage: "set config: bitbucket_user, bitbucket_pass, docker_user, docker_pass, stag, prod, dev",
+			Action: func(c *cli.Context) error {
+				return config(c)
+			},
+		},
 		{
 			Name:    "upgrade",
 			Aliases: []string{"u"},
@@ -165,7 +278,17 @@ func loadDeploy(name string) []byte {
 	return deploy
 }
 
+func checkLoginBb() {
+	if gconfig.Bbuser == "" || gconfig.Bbpass == "" {
+		fmt.Println("look like you haven't login to bitbucket yet")
+		fmt.Println("try")
+		fmt.Println("up config set bitbucket_user <YOURBITBUCKETUSER>")
+		fmt.Println("up config set bitbucket_pass <YOURBITBUCKETPASS>")
+		fmt.Println("to login to bitbucket")
+	}
+}
 func upgrade() {
+	checkLoginBb()
 	version, err := ioutil.ReadFile("up.yaml")
 	if err != nil || string(version) == "" {
 		panic("unable to read ./up.yaml file")
@@ -186,16 +309,16 @@ func upgrade() {
 			defer wg.Done()
 			if sver.Commit == "" {
 				// get commit
-				commit := getLatestCommit(sver.Repo, sver.Branch, username, password)
+				commit := getLatestCommit(sver.Repo, sver.Branch, gconfig.Bbuser, gconfig.Bbpass)
 				if commit == "" {
 					panic("no commit found for repo " + sver.Repo + " branch " + sver.Branch)
 				}
 				sver.Commit = commit
 			}
 			fmt.Printf("INFO: fetching repo %s (%s)\n", sver.Repo, sver.Commit[:7])
-			service := getService(sver.Repo, sver.Commit, username, password)
+			service := getService(sver.Repo, sver.Commit, gconfig.Bbuser, gconfig.Bbpass)
 			version := strconv.Itoa(service.Version)
-			deploy := getDeployYaml(sver.Repo, sver.Commit, username, password)
+			deploy := getDeployYaml(sver.Repo, sver.Commit, gconfig.Bbuser, gconfig.Bbpass)
 
 			fmt.Printf("INFO: save deployment for service %s at %s/%s.yaml\n", service.Name, ServiceCachePath, service.Name)
 			saveDeploy(service.Name, deploy)
@@ -729,7 +852,7 @@ func execute(shell, script string) (ok bool) {
 			break
 		}
 		fmt.Print(string(chunk))
-		 ok = false
+		ok = false
 	}
 	return ok
 }
