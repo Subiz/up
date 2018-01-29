@@ -200,6 +200,11 @@ func main() {
 			},
 		},
 		{
+			Name:  "inc",
+			Usage: "run up script",
+			Action: inc,
+		},
+		{
 			Name:  "up",
 			Usage: "run up script",
 			Action: func(c *cli.Context) error {
@@ -768,11 +773,11 @@ func compile(src, version, name, commit string) string {
 	})
 }
 
-func inc() bool {
+func inc(c *cli.Context) error {
 	service := parseService()
 	service.Version++
 	saveService(service)
-	return true
+	return nil
 }
 
 func saveService(s Service) {
