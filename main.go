@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"errors"
 )
 
 const ServiceCachePath = "./services"
@@ -142,7 +143,7 @@ func tryLoginBb() {
 func main() {
 	loadUpConfig()
 	app := cli.NewApp()
-	app.Version = "0.2.7"
+	app.Version = "0.2.9"
 	cli.VersionFlag = cli.BoolFlag{
 		Name:  "version, V",
 		Usage: "print the version",
@@ -207,18 +208,17 @@ func main() {
 		{
 			Name:  "up",
 			Usage: "run up script",
-			Action: func(c *cli.Context) error {
-				up()
-				return nil
-			},
+			Action: up,
 		},
 		{
 			Name:  "deploy",
 			Usage: "build and deploy to kubernetes dev environment",
-			Action: func(c *cli.Context) error {
-				deploy()
-				return nil
-			},
+			Action: deploy,
+		},
+		{
+			Name:  "run",
+			Usage: "exec command defined in run section",
+			Action: run,
 		},
 		{
 			Name:  "init",
@@ -753,16 +753,16 @@ func getYamlConfigVersion(content, kind, name string) (string, string) {
 	return "", ""
 }
 
-func deploy() bool {
-	if !build() {
-		return false
-	}
+func deploy(c *cli.Context) error {
 	service := parseService()
 	deploy := compile(readDeployYaml(), strconv.Itoa(service.Version), service.Name, service.commit)
 	if err := ioutil.WriteFile("deploy-lock.yaml", []byte(deploy), 0644); err != nil {
 		panic(err)
 	}
-	return execute("/bin/sh", "kubectl apply -f deploy-lock.yaml")
+	if !execute("/bin/sh", "kubectl apply -f deploy-lock.yaml") {
+		return errors.New("failed")
+	}
+	return nil
 }
 
 func compile(src, version, name, commit string) string {
@@ -791,14 +791,13 @@ func saveService(s Service) {
 	}
 }
 
-func up() bool {
+func up(c *cli.Context) error {
 	service := parseService()
 	upstr := compile(service.Up, strconv.Itoa(service.Version), service.Name, service.commit)
 	if !execute("/bin/sh", upstr) {
-		return false
+		return errors.New("failed")
 	}
-	saveService(service)
-	return true
+	return nil
 }
 
 func build() bool {
@@ -913,4 +912,21 @@ func info(c *cli.Context) {
 	case "commit", "c":
 		fmt.Print(service.commit)
 	}
+}
+
+func run(c *cli.Context) error {
+	service := parseService()
+	name := c.Args().Get(0)
+	for n, c := range service.Run {
+		println(fmt.Sprintf("%v", n), name)
+		if name == fmt.Sprintf("%v", n) {
+			rc, _ := c.(string)
+			c := compile(rc, strconv.Itoa(service.Version), service.Name, service.commit)
+			if !execute("/bin/sh", c) {
+				return errors.New("failed")
+			}
+			return nil
+		}
+	}
+	return errors.New("command not found")
 }
