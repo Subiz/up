@@ -49,7 +49,10 @@ type Service struct {
 	Name            string
 	Commit          string
 	Version         int
-	Build, BeforeUp string
+	Build           string
+	Up              string
+	Run             map[interface{}]interface{}
+	commit          string
 }
 
 type Version struct {
@@ -139,7 +142,7 @@ func tryLoginBb() {
 func main() {
 	loadUpConfig()
 	app := cli.NewApp()
-	app.Version = "0.2.6"
+	app.Version = "0.2.7"
 	cli.VersionFlag = cli.BoolFlag{
 		Name:  "version, V",
 		Usage: "print the version",
@@ -186,17 +189,10 @@ func main() {
 			Action: func(c *cli.Context) error {
 				return nil
 			},
-		}, {
-			Name:  "rebuild",
-			Usage: "run build script but DOES NOT increase version",
-			Action: func(c *cli.Context) error {
-				rebuild()
-				return nil
-			},
 		},
 		{
 			Name:    "build",
-			Aliases: []string{"b"},
+			Aliases: []string{"b", "rebuild"},
 			Usage:   "run build script, increase version",
 			Action: func(c *cli.Context) error {
 				build()
@@ -205,9 +201,17 @@ func main() {
 		},
 		{
 			Name:  "up",
-			Usage: "build and deploy to kubernetes dev environment",
+			Usage: "run up script",
 			Action: func(c *cli.Context) error {
 				up()
+				return nil
+			},
+		},
+		{
+			Name:  "deploy",
+			Usage: "build and deploy to kubernetes dev environment",
+			Action: func(c *cli.Context) error {
+				deploy()
 				return nil
 			},
 		},
@@ -364,9 +368,9 @@ func merge() {
 			defer wg.Done()
 			deploy := loadDeploy(sname)
 
-			deploy = []byte(compile(string(deploy), sver.Version, sname))
+			deploy = []byte(compile(string(deploy), sver.Version, sname, sver.Commit[:7]))
 			moddeploy := readDeployModification(sname)
-			moddeploy = []byte(compile(string(moddeploy), sver.Version, sname))
+			moddeploy = []byte(compile(string(moddeploy), sver.Version, sname, sver.Commit[:7]))
 
 			fmt.Printf("INFO: merging service %s (#%s)\n", sname, sver.Version)
 			merged := mergeYAML(moddeploy, deploy)
@@ -744,44 +748,29 @@ func getYamlConfigVersion(content, kind, name string) (string, string) {
 	return "", ""
 }
 
-func up() bool {
+func deploy() bool {
 	if !build() {
 		return false
 	}
-
 	service := parseService()
-	upstr := compile(service.BeforeUp, strconv.Itoa(service.Version), service.Name)
-	deploy := compile(readDeployYaml(), strconv.Itoa(service.Version), service.Name)
+	deploy := compile(readDeployYaml(), strconv.Itoa(service.Version), service.Name, service.commit)
 	if err := ioutil.WriteFile("deploy-lock.yaml", []byte(deploy), 0644); err != nil {
 		panic(err)
 	}
-	upstr += "\nkubectl apply -f deploy-lock.yaml"
-	return execute("/bin/sh", upstr)
+	return execute("/bin/sh", "kubectl apply -f deploy-lock.yaml")
 }
 
-func compile(src, version, name string) string {
+func compile(src, version, name, commit string) string {
 	return stringf.Format(src, map[string]string{
 		"version": version,
 		"name":    name,
+		"commit":  commit,
 	})
 }
 
-func rebuild() bool {
-	service := parseService()
-	buildstr := compile(service.Build, strconv.Itoa(service.Version), service.Name)
-	if !execute("/bin/sh", buildstr) {
-		return false
-	}
-	return true
-}
-
-func build() bool {
+func inc() bool {
 	service := parseService()
 	service.Version++
-	buildstr := compile(service.Build, strconv.Itoa(service.Version), service.Name)
-	if !execute("/bin/sh", buildstr) {
-		return false
-	}
 	saveService(service)
 	return true
 }
@@ -797,6 +786,26 @@ func saveService(s Service) {
 	}
 }
 
+func up() bool {
+	service := parseService()
+	upstr := compile(service.Up, strconv.Itoa(service.Version), service.Name, service.commit)
+	if !execute("/bin/sh", upstr) {
+		return false
+	}
+	saveService(service)
+	return true
+}
+
+func build() bool {
+	service := parseService()
+	buildstr := compile(service.Build, strconv.Itoa(service.Version), service.Name, service.commit)
+	if !execute("/bin/sh", buildstr) {
+		return false
+	}
+	saveService(service)
+	return true
+}
+
 func parseService() Service {
 	data, err := ioutil.ReadFile("service.yaml")
 	if err != nil {
@@ -806,7 +815,34 @@ func parseService() Service {
 	if err := yaml.Unmarshal(data, &s); err != nil {
 		panic(err)
 	}
+	s.commit = getGitCommit()
 	return s
+}
+
+func getGitCommit() string {
+	// check in git (HEAD)
+	cmdArgs := []string{"-c" , "[ -f .git/HEAD ] && cat .git/$(cat .git/HEAD | cut -d ' ' -f 2)"}
+
+	if cmdOut, err := exec.Command("/bin/sh", cmdArgs...).Output(); err == nil {
+		sha := string(cmdOut)
+		return sha[:7]
+	}
+
+	// check in env $GIT_COMMIT
+	if c := os.Getenv("GIT_COMMIT"); c != "" {
+		return c[:7]
+	}
+
+	if c := os.Getenv("BITBUCKET_COMMIT"); c != "" {
+		return c[:7]
+	}
+
+	if c := os.Getenv("DRONE_COMMIT_SHA"); c != "" {
+
+		return c[:7]
+	}
+
+	return "0000000"
 }
 
 // exec a shell script
@@ -869,5 +905,7 @@ func info(c *cli.Context) {
 		fmt.Print(service.Name)
 	case "version", "v":
 		fmt.Print(service.Version)
+	case "commit", "c":
+		fmt.Print(service.commit)
 	}
 }

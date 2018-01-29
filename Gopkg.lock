@@ -2,8 +2,18 @@
 
 
 [[projects]]
+  name = "github.com/BurntSushi/toml"
+  packages = ["."]
+  revision = "b26d9c308763d68093482582cea63d69be07a0f0"
+  version = "v0.3.0"
+
+[[projects]]
   name = "github.com/klauspost/compress"
-  packages = ["flate","gzip","zlib"]
+  packages = [
+    "flate",
+    "gzip",
+    "zlib"
+  ]
   revision = "6c8db69c4b49dd4df1fff66996cf556176d0b9bf"
   version = "v1.2.1"
 
@@ -22,14 +32,14 @@
 [[projects]]
   name = "github.com/thanhpk/stringf"
   packages = ["."]
-  revision = "da3f5ab1dda9124262c257c0838c3f34bdb40209"
-  version = "v1.0.4"
+  revision = "31287835c2a46f7209adf62191e92a068f873b18"
+  version = "v1.0.5"
 
 [[projects]]
   name = "github.com/tidwall/gjson"
   packages = ["."]
-  revision = "5a69e67cfd8f6f9b0044ed49f5079d0eeed28653"
-  version = "v1.0.1"
+  revision = "87033efcaec6215741137e8ca61952c53ef2685d"
+  version = "v1.0.6"
 
 [[projects]]
   branch = "master"
@@ -45,7 +55,10 @@
 
 [[projects]]
   name = "github.com/valyala/fasthttp"
-  packages = [".","fasthttputil"]
+  packages = [
+    ".",
+    "fasthttputil"
+  ]
   revision = "d42167fd04f636e20b005e9934159e95454233c7"
   version = "v20160617"
 
@@ -53,11 +66,11 @@
   branch = "v2"
   name = "gopkg.in/yaml.v2"
   packages = ["."]
-  revision = "eb3733d160e74a9c7e442f435eb3bea458e1d19f"
+  revision = "d670f9405373e636a5a2765eea47fac0c9bc91a4"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "22fec1113a65ab399d76ff23e333be343b828b39d4e3da0ede6dd258cf80b534"
+  inputs-digest = "ae9e7cd4677afb3cdf6c693630066484fd72c0d9b9af30606a14dd95366864ff"
   solver-name = "gps-cdcl"
   solver-version = 1
