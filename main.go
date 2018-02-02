@@ -142,7 +142,7 @@ func tryLoginBb() {
 func main() {
 	loadUpConfig()
 	app := cli.NewApp()
-	app.Version = "0.3.0"
+	app.Version = "0.3.1"
 	cli.VersionFlag = cli.BoolFlag{
 		Name:  "version, V",
 		Usage: "print the version",
@@ -920,7 +920,6 @@ func run(c *cli.Context) error {
 	service := parseService()
 	name := c.Args().Get(0)
 	for n, c := range service.Run {
-		println(fmt.Sprintf("%v", n), name)
 		if name == fmt.Sprintf("%v", n) {
 			rc, _ := c.(string)
 			c := compile(rc, strconv.Itoa(service.Version), service.Name, service.commit)
