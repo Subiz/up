@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	toml "github.com/BurntSushi/toml"
 	"github.com/thanhpk/stringf"
@@ -19,7 +20,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"errors"
 )
 
 const ServiceCachePath = "./services"
@@ -47,13 +47,12 @@ func (n ByKindAndName) Less(i, j int) bool {
 }
 
 type Service struct {
-	Name            string
-	Commit          string
-	Version         int
-	Build           string
-	Up              string
-	Run             map[interface{}]interface{}
-	commit          string
+	Name    string
+	Version int
+	Build   string                      `yaml:"build,omitempty"`
+	Up      string                      `yaml:"up,omitempty"`
+	Run     map[interface{}]interface{} `yaml:"run,omitempty"`
+	commit  string
 }
 
 type Version struct {
@@ -64,11 +63,11 @@ type Version struct {
 }
 
 type UpConfig struct {
-	Bbuser     string `toml:"bitbucket_user"`
-	Bbpass     string `toml:"bitbucket_pass"`
-	Stag       string `toml:"stag"`
-	Prod       string `toml:"prod"`
-	Dev        string `toml:"dev"`
+	Bbuser string `toml:"bitbucket_user"`
+	Bbpass string `toml:"bitbucket_pass"`
+	Stag   string `toml:"stag"`
+	Prod   string `toml:"prod"`
+	Dev    string `toml:"dev"`
 }
 
 var gconfig UpConfig
@@ -118,7 +117,7 @@ func saveUpConfig() {
 	if err := toml.NewEncoder(buf).Encode(gconfig); err != nil {
 		panic(err)
 	}
-	fmt.Println(getHomeDir()+"/"+ConfigPath)
+	fmt.Println(getHomeDir() + "/" + ConfigPath)
 	os.Mkdir(getHomeDir()+"/"+ConfigPath, 0777)
 	if err := ioutil.WriteFile(getHomeDir()+"/"+ConfigPath+"/ignoreme.toml", buf.Bytes(), 0644); err != nil {
 		panic(err)
@@ -143,16 +142,16 @@ func tryLoginBb() {
 func main() {
 	loadUpConfig()
 	app := cli.NewApp()
-	app.Version = "0.2.9"
+	app.Version = "0.3.0"
 	cli.VersionFlag = cli.BoolFlag{
 		Name:  "version, V",
 		Usage: "print the version",
 	}
 	app.Commands = []cli.Command{
 		{
-			Name: "info",
+			Name:    "info",
 			Aliases: []string{"i"},
-			Usage: "get info of the service",
+			Usage:   "get info of the service",
 			Action: func(c *cli.Context) error {
 				info(c)
 				return nil
@@ -201,23 +200,23 @@ func main() {
 			},
 		},
 		{
-			Name:  "inc",
-			Usage: "run up script",
+			Name:   "inc",
+			Usage:  "run up script",
 			Action: inc,
 		},
 		{
-			Name:  "up",
-			Usage: "run up script",
+			Name:   "up",
+			Usage:  "run up script",
 			Action: up,
 		},
 		{
-			Name:  "deploy",
-			Usage: "build and deploy to kubernetes dev environment",
+			Name:   "deploy",
+			Usage:  "build and deploy to kubernetes dev environment",
 			Action: deploy,
 		},
 		{
-			Name:  "run",
-			Usage: "exec command defined in run section",
+			Name:   "run",
+			Usage:  "exec command defined in run section",
 			Action: run,
 		},
 		{
@@ -240,7 +239,7 @@ func printServices(services []Service) {
 	sort.Sort(ByName(services))
 	fmt.Println("--")
 	for _, s := range services {
-		fmt.Printf("%s %s #%d\n", s.Commit[:7], s.Name, s.Version)
+		fmt.Printf("%s %s #%d\n", s.commit[:7], s.Name, s.Version)
 	}
 	fmt.Printf("total %d services.\n", len(services))
 }
@@ -330,7 +329,7 @@ func upgrade() {
 			saveDeploy(service.Name, deploy)
 
 			mutex.Lock()
-			service.Commit = sver.Commit
+			service.commit = sver.Commit
 			outServices = append(outServices, service)
 			sver.Version = version
 			mutex.Unlock()
@@ -777,6 +776,7 @@ func inc(c *cli.Context) error {
 	service := parseService()
 	service.Version++
 	saveService(service)
+	fmt.Println("increased version of", service.Name, "to", service.Version)
 	return nil
 }
 
@@ -825,7 +825,7 @@ func parseService() Service {
 
 func getGitCommit() string {
 	// check in git (HEAD)
-	cmdArgs := []string{"-c" , "[ -f .git/HEAD ] && cat .git/$(cat .git/HEAD | cut -d ' ' -f 2)"}
+	cmdArgs := []string{"-c", "[ -f .git/HEAD ] && cat .git/$(cat .git/HEAD | cut -d ' ' -f 2)"}
 
 	if cmdOut, err := exec.Command("/bin/sh", cmdArgs...).Output(); err == nil {
 		sha := string(cmdOut)
@@ -911,6 +911,8 @@ func info(c *cli.Context) {
 		fmt.Print(service.Version)
 	case "commit", "c":
 		fmt.Print(service.commit)
+	default:
+		fmt.Printf("up %s\n%s %s-%d\n", c.App.Version, service.Name, service.commit, service.Version)
 	}
 }
 
