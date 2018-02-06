@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/fatih/color"
 	"bytes"
 	"encoding/base64"
 	"fmt"
@@ -140,7 +141,7 @@ func tryLoginBb() {
 func main() {
 	loadUpConfig()
 	app := cli.NewApp()
-	app.Version = "0.3.4"
+	app.Version = "0.3.5"
 	cli.VersionFlag = cli.BoolFlag{
 		Name:  "version, V",
 		Usage: "print the version",
@@ -162,19 +163,13 @@ func main() {
 			Name:    "upgrade",
 			Aliases: []string{"u"},
 			Usage:   "fetch for new version of all service into up-lock.yaml",
-			Action: func(c *cli.Context) error {
-				upgrade()
-				return nil
-			},
+			Action: upgrade,
 		},
 		{
 			Name:    "merge",
 			Aliases: []string{"m"},
 			Usage:   "merge all deployment file and its modification",
-			Action: func(c *cli.Context) error {
-				merge()
-				return nil
-			},
+			Action: merge,
 		},
 		{
 			Name:    "add",
@@ -217,7 +212,6 @@ func main() {
 
 	sort.Sort(cli.FlagsByName(app.Flags))
 	sort.Sort(cli.CommandsByName(app.Commands))
-
 	app.Run(os.Args)
 }
 
@@ -278,16 +272,18 @@ func checkLoginBb() {
 		fmt.Println("to login to bitbucket")
 	}
 }
-func upgrade() {
+func upgrade(c *cli.Context) error {
 	checkLoginBb()
 	version, err := ioutil.ReadFile("up.yaml")
 	if err != nil || string(version) == "" {
-		panic("unable to read ./up.yaml file")
+		fmt.Println(color.RedString(("unable to read ./up.yaml")))
+		return cli.NewExitError(err, -43)
 	}
 
 	v := make(map[string]*Version) // version in map format
 	if err := yaml.Unmarshal(version, &v); err != nil {
-		panic(err)
+		fmt.Println(color.RedString(("wrong yaml")))
+		return cli.NewExitError(err, -42)
 	}
 
 	outServices := make([]Service, 0)
@@ -333,18 +329,21 @@ func upgrade() {
 	if err := ioutil.WriteFile("up-lock.yaml", version, 0644); err != nil {
 		panic(err)
 	}
-	fmt.Println("up-lock.yaml are written")
+	fmt.Println(color.GreenString("up-lock.yaml are written"))
+	return nil
 }
 
-func merge() {
+func merge(c *cli.Context) error {
 	version, err := ioutil.ReadFile("up-lock.yaml")
 	if err != nil || string(version) == "" {
-		panic("unable to read ./up-lock.yaml")
+		fmt.Println(color.RedString(("unable to read ./up-lock.yaml")))
+		return cli.NewExitError(err, -4)
 	}
 
 	v := make(map[string]*Version) // version in map format
 	if err := yaml.Unmarshal(version, &v); err != nil {
-		panic(err)
+		fmt.Println(color.RedString(("wrong yaml")))
+		return cli.NewExitError(err, -4)
 	}
 
 	mutex := &sync.Mutex{}
@@ -376,9 +375,11 @@ func merge() {
 
 	outyaml = sortDeployment(outyaml)
 	if err := ioutil.WriteFile("deploy-lock.yaml", outyaml, 0644); err != nil {
-		panic(err)
+		fmt.Println(color.RedString(("unable to write deploy-lock.yaml")))
+		return cli.NewExitError(err, -5)
 	}
-	fmt.Println("deploy-lock.yaml are written")
+	fmt.Println(color.GreenString("deploy-lock.yaml are written."))
+	return nil
 }
 
 func mergeNamedArray(x1, x2 []interface{}) interface{} {
@@ -857,13 +858,13 @@ func execute(shell, script string) (ok bool) {
 			break
 		}
 		if ok == true {
-			fmt.Println("BEGIN ERR==============")
+			fmt.Println(color.RedString("BEGIN ERR=============="))
 		}
 		fmt.Print(string(chunk))
 		ok = false
 	}
 	if ok == false {
-		fmt.Println("END ERR==============")
+		fmt.Println(color.RedString("END ERR=============="))
 	}
 	return ok
 }
@@ -887,7 +888,7 @@ func info(c *cli.Context) error {
 	case "build", "b":
 		fmt.Println(service.build)
 	default:
-		fmt.Printf("up %s\nsubiz automatic deployment tool\n%s %s-%d\n", c.App.Version, service.Name, service.commit, service.Version)
+		fmt.Printf(color.GreenString("up %s") + " subiz automatic deployment tool\n" + color.YellowString("%s %s-%d") + "\n", c.App.Version, service.Name, service.commit, service.Version)
 	}
 	return nil
 }
@@ -899,6 +900,7 @@ func run(c *cli.Context) error {
 		if name == fmt.Sprintf("%v", n) {
 			rc, _ := c.(string)
 			c := compile(rc, strconv.Itoa(service.Version), service.Name, service.commit)
+			fmt.Println(color.YellowString("INFO: running " + name + "..."))
 			if !execute("/bin/sh", c) {
 				return cli.NewExitError("failed", -1)
 			}
@@ -910,7 +912,8 @@ func run(c *cli.Context) error {
 
 func action(c *cli.Context) error {
 	if c.Args().Get(0) == "" {
-		return info(c)
+		cli.VersionPrinter(c)
+		return nil
 	}
 	return run(c)
 }
