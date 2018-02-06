@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	toml "github.com/BurntSushi/toml"
 	"github.com/thanhpk/stringf"
@@ -49,9 +48,9 @@ func (n ByKindAndName) Less(i, j int) bool {
 type Service struct {
 	Name    string
 	Version int
-	Build   string                      `yaml:"build,omitempty"`
 	Up      string                      `yaml:"up,omitempty"`
 	Run     map[interface{}]interface{} `yaml:"run,omitempty"`
+	build   string
 	commit  string
 }
 
@@ -142,7 +141,7 @@ func tryLoginBb() {
 func main() {
 	loadUpConfig()
 	app := cli.NewApp()
-	app.Version = "0.3.3"
+	app.Version = "0.3.4"
 	cli.VersionFlag = cli.BoolFlag{
 		Name:  "version, V",
 		Usage: "print the version",
@@ -191,17 +190,8 @@ func main() {
 			},
 		},
 		{
-			Name:    "build",
-			Aliases: []string{"b", "rebuild"},
-			Usage:   "run build script, increase version",
-			Action: func(c *cli.Context) error {
-				build()
-				return nil
-			},
-		},
-		{
-			Name: "compile-dev",
-			Usage: "complie deploy-dev.yaml",
+			Name:   "compile-dev",
+			Usage:  "complie deploy-dev.yaml",
 			Action: deploy,
 		},
 		{
@@ -335,6 +325,7 @@ func upgrade() {
 
 			mutex.Lock()
 			service.commit = sver.Commit
+			service.build = sver.Commit + "-" + version
 			outServices = append(outServices, service)
 			sver.Version = version
 			mutex.Unlock()
@@ -768,6 +759,7 @@ func deploy(c *cli.Context) error {
 
 func compile(src, version, name, commit string) string {
 	return stringf.Format(src, map[string]string{
+		"build":   commit + "-" + version,
 		"version": version,
 		"name":    name,
 		"commit":  commit,
@@ -797,19 +789,9 @@ func up(c *cli.Context) error {
 	service := parseService()
 	upstr := compile(service.Up, strconv.Itoa(service.Version), service.Name, service.commit)
 	if !execute("/bin/sh", upstr) {
-		return errors.New("failed")
+		return cli.NewExitError("failed", -3)
 	}
 	return nil
-}
-
-func build() bool {
-	service := parseService()
-	buildstr := compile(service.Build, strconv.Itoa(service.Version), service.Name, service.commit)
-	if !execute("/bin/sh", buildstr) {
-		return false
-	}
-	saveService(service)
-	return true
 }
 
 func parseService() Service {
@@ -822,6 +804,7 @@ func parseService() Service {
 		panic(err)
 	}
 	s.commit = getGitCommit()
+	s.build = s.commit + "-" + strconv.Itoa(s.Version)
 	return s
 }
 
@@ -913,6 +896,8 @@ func info(c *cli.Context) {
 		fmt.Print(service.Version)
 	case "commit", "c":
 		fmt.Print(service.commit)
+	case "build", "b":
+		fmt.Println(service.build)
 	default:
 		fmt.Printf("up %s\n%s %s-%d\n", c.App.Version, service.Name, service.commit, service.Version)
 	}
