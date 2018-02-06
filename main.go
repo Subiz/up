@@ -48,7 +48,6 @@ func (n ByKindAndName) Less(i, j int) bool {
 type Service struct {
 	Name    string
 	Version int
-	Up      string                      `yaml:"up,omitempty"`
 	Run     map[interface{}]interface{} `yaml:"run,omitempty"`
 	build   string
 	commit  string
@@ -146,22 +145,18 @@ func main() {
 		Name:  "version, V",
 		Usage: "print the version",
 	}
+	app.Action = action
 	app.Commands = []cli.Command{
 		{
 			Name:    "info",
 			Aliases: []string{"i"},
 			Usage:   "get info of the service",
-			Action: func(c *cli.Context) error {
-				info(c)
-				return nil
-			},
+			Action: info,
 		},
 		{
 			Name:  "config",
 			Usage: "set config: bitbucket_user, bitbucket_pass, stag, prod, dev",
-			Action: func(c *cli.Context) error {
-				return config(c)
-			},
+			Action: config,
 		},
 		{
 			Name:    "upgrade",
@@ -200,17 +195,13 @@ func main() {
 			Action: inc,
 		},
 		{
-			Name:   "up",
-			Usage:  "run up script",
-			Action: up,
-		},
-		{
 			Name:   "deploy",
 			Usage:  "build and deploy to kubernetes dev environment",
 			Action: deploy,
 		},
 		{
 			Name:   "run",
+			Aliases: []string{"r"},
 			Usage:  "exec command defined in run section",
 			Action: run,
 		},
@@ -785,15 +776,6 @@ func saveService(s Service) {
 	}
 }
 
-func up(c *cli.Context) error {
-	service := parseService()
-	upstr := compile(service.Up, strconv.Itoa(service.Version), service.Name, service.commit)
-	if !execute("/bin/sh", upstr) {
-		return cli.NewExitError("failed", -3)
-	}
-	return nil
-}
-
 func parseService() Service {
 	data, err := ioutil.ReadFile("service.yaml")
 	if err != nil {
@@ -874,8 +856,14 @@ func execute(shell, script string) (ok bool) {
 		if _, err := stderr.Read(chunk); err != nil {
 			break
 		}
+		if ok == true {
+			fmt.Println("BEGIN ERR==============")
+		}
 		fmt.Print(string(chunk))
 		ok = false
+	}
+	if ok == false {
+		fmt.Println("END ERR==============")
 	}
 	return ok
 }
@@ -886,7 +874,7 @@ func zero(b []byte) {
 	}
 }
 
-func info(c *cli.Context) {
+func info(c *cli.Context) error {
 	service := parseService()
 	key := c.Args().Get(0)
 	switch key {
@@ -899,8 +887,9 @@ func info(c *cli.Context) {
 	case "build", "b":
 		fmt.Println(service.build)
 	default:
-		fmt.Printf("up %s\n%s %s-%d\n", c.App.Version, service.Name, service.commit, service.Version)
+		fmt.Printf("up %s\nsubiz automatic deployment tool\n%s %s-%d\n", c.App.Version, service.Name, service.commit, service.Version)
 	}
+	return nil
 }
 
 func run(c *cli.Context) error {
@@ -917,4 +906,11 @@ func run(c *cli.Context) error {
 		}
 	}
 	return cli.NewExitError("command not found", -2)
+}
+
+func action(c *cli.Context) error {
+	if c.Args().Get(0) == "" {
+		return info(c)
+	}
+	return run(c)
 }
