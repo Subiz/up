@@ -142,7 +142,7 @@ func tryLoginBb() {
 func main() {
 	loadUpConfig()
 	app := cli.NewApp()
-	app.Version = "0.3.1"
+	app.Version = "0.3.3"
 	cli.VersionFlag = cli.BoolFlag{
 		Name:  "version, V",
 		Usage: "print the version",
@@ -198,6 +198,11 @@ func main() {
 				build()
 				return nil
 			},
+		},
+		{
+			Name: "compile-dev",
+			Usage: "complie deploy-dev.yaml",
+			Action: deploy,
 		},
 		{
 			Name:   "inc",
@@ -758,9 +763,6 @@ func deploy(c *cli.Context) error {
 	if err := ioutil.WriteFile("deploy-lock.yaml", []byte(deploy), 0644); err != nil {
 		panic(err)
 	}
-	if !execute("/bin/sh", "kubectl apply -f deploy-lock.yaml") {
-		return errors.New("failed")
-	}
 	return nil
 }
 
@@ -924,10 +926,10 @@ func run(c *cli.Context) error {
 			rc, _ := c.(string)
 			c := compile(rc, strconv.Itoa(service.Version), service.Name, service.commit)
 			if !execute("/bin/sh", c) {
-				return errors.New("failed")
+				return cli.NewExitError("failed", -1)
 			}
 			return nil
 		}
 	}
-	return errors.New("command not found")
+	return cli.NewExitError("command not found", -2)
 }
