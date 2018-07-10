@@ -1,17 +1,11 @@
 package main
 
 import (
-	"github.com/fatih/color"
 	"bytes"
 	"encoding/base64"
 	"fmt"
-	toml "github.com/BurntSushi/toml"
-	"github.com/thanhpk/stringf"
-	"github.com/tidwall/gjson"
-	"github.com/urfave/cli"
-	"github.com/valyala/fasthttp"
-	"gopkg.in/yaml.v2"
 	"io/ioutil"
+	"log"
 	"os"
 	"os/exec"
 	"regexp"
@@ -19,7 +13,16 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
+
+	toml "github.com/BurntSushi/toml"
+	"github.com/fatih/color"
+	"github.com/thanhpk/stringf"
+	"github.com/tidwall/gjson"
+	"github.com/urfave/cli"
+	"github.com/valyala/fasthttp"
+	"gopkg.in/yaml.v2"
 )
 
 const ServiceCachePath = "./services"
@@ -141,7 +144,7 @@ func tryLoginBb() {
 func main() {
 	loadUpConfig()
 	app := cli.NewApp()
-	app.Version = "0.3.5"
+	app.Version = "0.3.6"
 	cli.VersionFlag = cli.BoolFlag{
 		Name:  "version, V",
 		Usage: "print the version",
@@ -152,24 +155,24 @@ func main() {
 			Name:    "info",
 			Aliases: []string{"i"},
 			Usage:   "get info of the service",
-			Action: info,
+			Action:  info,
 		},
 		{
-			Name:  "config",
-			Usage: "set config: bitbucket_user, bitbucket_pass, stag, prod, dev",
+			Name:   "config",
+			Usage:  "set config: bitbucket_user, bitbucket_pass, stag, prod, dev",
 			Action: config,
 		},
 		{
 			Name:    "upgrade",
 			Aliases: []string{"u"},
 			Usage:   "fetch for new version of all service into up-lock.yaml",
-			Action: upgrade,
+			Action:  upgrade,
 		},
 		{
 			Name:    "merge",
 			Aliases: []string{"m"},
 			Usage:   "merge all deployment file and its modification",
-			Action: merge,
+			Action:  merge,
 		},
 		{
 			Name:    "add",
@@ -195,10 +198,10 @@ func main() {
 			Action: deploy,
 		},
 		{
-			Name:   "run",
+			Name:    "run",
 			Aliases: []string{"r"},
-			Usage:  "exec command defined in run section",
-			Action: run,
+			Usage:   "exec command defined in run section",
+			Action:  run,
 		},
 		{
 			Name:  "init",
@@ -818,7 +821,7 @@ func getGitCommit() string {
 }
 
 // exec a shell script
-func execute(shell, script string) (ok bool) {
+func execute(shell, script string) (success bool) {
 	tmpfile, err := ioutil.TempFile("", "script")
 	if err != nil {
 		panic(err)
@@ -851,22 +854,36 @@ func execute(shell, script string) (ok bool) {
 		}
 		fmt.Print(string(chunk))
 	}
-	ok = true
+
+	hasErr := false
 	for {
 		zero(chunk)
 		if _, err := stderr.Read(chunk); err != nil {
 			break
 		}
-		if ok == true {
+		if hasErr == false {
 			fmt.Println(color.RedString("BEGIN ERR=============="))
 		}
 		fmt.Print(string(chunk))
-		ok = false
+		hasErr = true
 	}
-	if ok == false {
+	if hasErr == true {
 		fmt.Println(color.RedString("END ERR=============="))
 	}
-	return ok
+
+	success = true
+	if err := cmd.Wait(); err != nil {
+		if exiterr, ok := err.(*exec.ExitError); ok {
+			success = false
+			if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
+				log.Printf("Exit code: %d", status.ExitStatus())
+			}
+		} else {
+			log.Fatalf("cmd.Wait: %v", err)
+		}
+	}
+
+	return success
 }
 
 func zero(b []byte) {
@@ -888,7 +905,7 @@ func info(c *cli.Context) error {
 	case "build", "b":
 		fmt.Println(service.build)
 	default:
-		fmt.Printf(color.GreenString("up %s") + " subiz automatic deployment tool\n" + color.YellowString("%s %s-%d") + "\n", c.App.Version, service.Name, service.commit, service.Version)
+		fmt.Printf(color.GreenString("up %s")+" subiz automatic deployment tool\n"+color.YellowString("%s %s-%d")+"\n", c.App.Version, service.Name, service.commit, service.Version)
 	}
 	return nil
 }
