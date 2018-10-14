@@ -9,21 +9,23 @@ UPVERSION=4.0.1
 export _VERSION=$(date +%s)
 printf "\e[36mVERSION $_VERSION\e[m\n"
 
+# ===========================================
 printf "\e[93mBUILDING... \e[m\n"
 starttime=$(date +%s.%N)
-echo "#!/bin/sh" > .build.tmp
-dockerun build.yaml >> .build.tmp
-chmod +x .build.tmp && ./.build.tmp
+echo "#!/bin/sh" > /tmp/$_NAME.build
+dockerun build.yaml >> /tmp/$_NAME.build
+chmod +x /tmp/$_NAME.build && /tmp/$_NAME.build
 printf "\e[32m(%.1f sec)\e[m\n" $(echo "$(date +%s.%N) - $starttime" | bc)
 
+# ===========================================
 printf "\e[93mDOCKERING... \e[m\n"
 starttime=$(date +%s.%N)
-export DOCKER_HOST=tcp://dev.subiz.net:2376
-cp Dockerfile .Dockerfile.tmp
-configmap -config=../devconfig/config.yaml -format=docker -compact configmap.yaml >> .Dockerfile.tmp
-docker build -q -t $_DOCKERHOST$_ORG/$_NAME:$_VERSION -f .Dockerfile.tmp .
+cp Dockerfile /tmp/$_NAME.Dockerfile
+configmap -config=../devconfig/config.yaml -format=docker -compact configmap.yaml >> /tmp/$_NAME.Dockerfile
+DOCKER_HOST=$DOCKER_BUILD_HOST docker build -t $_DOCKERHOST$_ORG/$_NAME:$_VERSION -f /tmp/$_NAME.Dockerfile .
 printf "\e[32m(%.1f sec)\e[m\n" $(echo "$(date +%s.%N) - $starttime" | bc)
 
+# ===========================================
 printf "\e[93mDEPLOYING... \e[m\n"
 starttime=$(date +%s.%N)
 export IMG="$_DOCKERHOST$_ORG/$_NAME:$_VERSION"
@@ -32,9 +34,4 @@ kubectl apply -f .deploy.$_ENV.yaml
 rm .deploy.$_ENV.yaml
 printf "\e[32m(%.1f sec)\e[m\n" $(echo "$(date +%s.%N) - $starttime" | bc)
 
-printf "\e[93mCLEANING... \e[m\n"
-starttime=$(date +%s.%N)
-rm .Dockerfile.tmp
-rm .build.tmp
 rm -f $_NAME.tar.gz
-printf "\e[32m(%.1f sec)\e[m\n" $(echo "$(date +%s.%N) - $starttime" | bc)
