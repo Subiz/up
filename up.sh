@@ -30,7 +30,9 @@ printf "\e[93mDEPLOYING... \e[m\n"
 starttime=$(date +%s.%N)
 export IMG="$_DOCKERHOST$_ORG/$_NAME:$_VERSION"
 envsubst < deploy.$_ENV.yaml > .deploy.$_ENV.yaml
-kubectl apply -f .deploy.$_ENV.yaml
+
+[ -z $KUBECTL ] && KUBECTL=kubectl
+$KUBECTL apply -f .deploy.$_ENV.yaml
 rm .deploy.$_ENV.yaml
 printf "\e[32m(%.1f sec)\e[m\n" $(echo "$(date +%s.%N) - $starttime" | bc)
 
