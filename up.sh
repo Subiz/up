@@ -32,7 +32,7 @@ export IMG="$_DOCKERHOST$_ORG/$_NAME:$_VERSION"
 export GUID=$(date +%s)
 envsubst < deploy.$_ENV.yaml > .deploy.$_ENV.yaml
 
-[ -z $KUBECTL ] && KUBECTL=kubectl
+[ -z "$KUBECTL" ] && echo KUBECTL=kubectl
 $KUBECTL apply -f .deploy.$_ENV.yaml
 rm .deploy.$_ENV.yaml
 printf "\e[32m(%.1f sec)\e[m\n" $(echo "$(date +%s.%N) - $starttime" | bc)
