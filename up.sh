@@ -13,7 +13,7 @@ printf "\e[36mVERSION $_VERSION\e[m\n"
 printf "\e[93mBUILDING... \e[m\n"
 starttime=$(date +%s.%N)
 echo "#!/bin/sh" > /tmp/$_NAME.build
-dockerun build.yaml >> /tmp/$_NAME.build
+dockerrun build.yaml >> /tmp/$_NAME.build
 chmod +x /tmp/$_NAME.build && /tmp/$_NAME.build
 printf "\e[32m(%.1f sec)\e[m\n" $(echo "$(date +%s.%N) - $starttime" | bc)
 
