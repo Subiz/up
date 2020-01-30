@@ -1,5 +1,5 @@
 #!/bin/sh -e
-UPVERSION=4.0.3
+UPVERSION=4.0.5
 
 [ "$1" = "update" ] && NEWV=$(curl -L https://github.com/subiz/up/releases/download/0/stable.txt) && curl -L https://github.com/subiz/up/releases/download/$NEWV/up.sh -o $GOPATH/bin/up4 && chmod +x $GOPATH/bin/up4 && echo $NEWV && exit 0
 
@@ -19,16 +19,18 @@ printf "\e[32m(%.1f sec)\e[m\n" $(echo "$(date +%s.%N) - $starttime" | bc)
 
 # ===========================================
 printf "\e[93mDOCKERING... \e[m\n"
+export IMG="registry.subiz.net:5000/$_ORG/$_NAME:$_VERSION"
 starttime=$(date +%s.%N)
 cp Dockerfile /tmp/$_NAME.Dockerfile
 configmap -config=../devconfig/config.yaml -format=docker -compact configmap.yaml >> /tmp/$_NAME.Dockerfile
-DOCKER_HOST=$DOCKER_BUILD_HOST docker build -t $_DOCKERHOST$_ORG/$_NAME:$_VERSION -f /tmp/$_NAME.Dockerfile .
+DOCKER_HOST=$DOCKER_BUILD_HOST docker build -t $IMG -f /tmp/$_NAME.Dockerfile .
+DOCKER_HOST=$DOCKER_BUILD_HOST docker push $IMG
+
 printf "\e[32m(%.1f sec)\e[m\n" $(echo "$(date +%s.%N) - $starttime" | bc)
 
 # ===========================================
 printf "\e[93mDEPLOYING... \e[m\n"
 starttime=$(date +%s.%N)
-export IMG="$_DOCKERHOST$_ORG/$_NAME:$_VERSION"
 export GUID=$(date +%s)
 envsubst < deploy.$_ENV.yaml > .deploy.$_ENV.yaml
 
