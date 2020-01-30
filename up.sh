@@ -1,7 +1,7 @@
 #!/bin/sh -e
-UPVERSION=4.0.7
+UPVERSION=4.0.8
 
-[ "$1" = "update" ] && NEWV=$(curl -L https://github.com/subiz/up/releases/download/0/stable.txt) && curl -L https://github.com/subiz/up/releases/download/$NEWV/up.sh -o $GOPATH/bin/up4 && chmod +x $GOPATH/bin/up4 && echo $NEWV && exit 0
+[ "$1" = "update" ] && NEWV=$(curl -L https://raw.githubusercontent.com/subiz/up/master/stable.txt) && curl -L https://github.com/subiz/up/releases/download/$NEWV/up.sh -o $GOPATH/bin/up4 && chmod +x $GOPATH/bin/up4 && echo $NEWV && exit 0
 
 [ "$1" = "help" ] && printf "subiz up v$UPVERSION\ncommands: help, update\n" && exit 0
 
