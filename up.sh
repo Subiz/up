@@ -1,5 +1,5 @@
 #!/bin/sh -e
-UPVERSION=4.0.9
+UPVERSION=4.1.0
 
 [ "$1" = "update" ] && NEWV=$(curl -L https://github.com/subiz/up/raw/master/stable.txt) && curl -L https://github.com/subiz/up/releases/download/$NEWV/up.sh -o $GOPATH/bin/up4 && chmod +x $GOPATH/bin/up4 && echo $NEWV && exit 0
 
@@ -19,13 +19,16 @@ printf "\e[32m(%.1f sec)\e[m\n" $(echo "$(date +%s.%N) - $starttime" | bc)
 
 # ===========================================
 printf "\e[93mDOCKERING... \e[m\n"
-export IMG="registry.subiz.net:5000/$_ORG/$_NAME:$_VERSION"
+export IMG="asia.gcr.io/subiz-version-4/$_NAME:$_VERSION"
 starttime=$(date +%s.%N)
 cp Dockerfile /tmp/$_NAME.Dockerfile
 configmap -config=../devconfig/config.yaml -format=docker -compact configmap.yaml >> /tmp/$_NAME.Dockerfile
-DOCKER_HOST=$DOCKER_BUILD_HOST docker build -t $IMG -f /tmp/$_NAME.Dockerfile .
-DOCKER_HOST=$DOCKER_BUILD_HOST docker push $IMG
+docker build -t $IMG -f /tmp/$_NAME.Dockerfile .
+printf "\e[32m(%.1f sec)\e[m\n" $(echo "$(date +%s.%N) - $starttime" | bc)
 
+printf "\e[93mPUSHING... \e[m\n"
+starttime=$(date +%s.%N)
+docker push $IMG
 printf "\e[32m(%.1f sec)\e[m\n" $(echo "$(date +%s.%N) - $starttime" | bc)
 
 # ===========================================
